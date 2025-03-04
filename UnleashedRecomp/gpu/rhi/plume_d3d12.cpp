@@ -9,6 +9,10 @@
 
 #include <unordered_set>
 
+// Libuwp helper
+extern "C" __declspec(dllimport) void* uwp_GetWindowReference();
+extern "C" __declspec(dllimport) void uwp_ProcessEvents();
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wtautological-undefined-compare"
@@ -1234,7 +1238,12 @@ namespace plume {
 
         IDXGISwapChain1 *swapChain1;
         IDXGIFactory4 *dxgiFactory = commandQueue->device->renderInterface->dxgiFactory;
+// TODO: preproc cleanup
+#if 0
         HRESULT res = dxgiFactory->CreateSwapChainForHwnd(commandQueue->d3d, renderWindow, &swapChainDesc, nullptr, nullptr, &swapChain1);
+#else
+        HRESULT res = dxgiFactory->CreateSwapChainForCoreWindow(commandQueue->d3d, static_cast<IUnknown*>(uwp_GetWindowReference()), &swapChainDesc, nullptr, &swapChain1);
+#endif
         if (FAILED(res)) {
             fprintf(stderr, "CreateSwapChainForHwnd failed with error code 0x%lX.\n", res);
             return;
@@ -1281,6 +1290,8 @@ namespace plume {
     }
 
     bool D3D12SwapChain::present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) {
+        uwp_ProcessEvents();
+
         UINT syncInterval = vsyncEnabled ? 1 : 0;
         UINT flags = !vsyncEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0;
         HRESULT res = d3d->Present(syncInterval, flags);
@@ -1339,11 +1350,19 @@ namespace plume {
         return height;
     }
 
+    extern "C" __declspec(dllimport) void uwp_GetScreenSize(int* x, int* y);
     void D3D12SwapChain::getWindowSize(uint32_t &dstWidth, uint32_t &dstHeight) const {
+#if 0
         RECT rect;
         GetClientRect(renderWindow, &rect);
         dstWidth = rect.right - rect.left;
         dstHeight = rect.bottom - rect.top;
+#else
+        int x, y;
+        uwp_GetScreenSize(&x, &y);
+        dstWidth = static_cast<uint32_t>(x);
+        dstHeight = static_cast<uint32_t>(y);
+#endif
     }
 
     void D3D12SwapChain::setTextures() {

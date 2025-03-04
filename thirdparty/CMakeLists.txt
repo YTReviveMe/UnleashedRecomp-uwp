@@ -15,8 +15,19 @@ set(SDL2MIXER_OPUS OFF)
 set(SDL2MIXER_VORBIS "VORBISFILE")
 set(SDL2MIXER_WAVPACK OFF)
 
+
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/msdf-atlas-gen")
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/nativefiledialog-extended")
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/o1heap")
+
+# UWP hack to get dll's for SDL, static SDL not currently supported
+message(STATUS "Forcing dynamic SDL link for UWP")
+set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+set(SDL_SHARED ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL")
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL_mixer")
+
+# Reset back to off, only SDL_mixer needs this var
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

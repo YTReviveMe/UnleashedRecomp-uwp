@@ -59,7 +59,7 @@ else()
 endif()
 
 add_compile_definitions(
-    SDL_MAIN_HANDLED
+    #SDL_MAIN_HANDLED
     _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR # Microsoft wtf?
     _CRT_SECURE_NO_WARNINGS)
 
@@ -290,11 +290,12 @@ if (WIN32)
     set(WIN32_ICON_PATH "${PROJECT_SOURCE_DIR}/../UnleashedRecompResources/images/game_icon.ico")
 
     configure_file("res/win32/res.rc.template" "${CMAKE_BINARY_DIR}/res.rc" @ONLY)
-    add_executable(UnleashedRecomp ${UNLEASHED_RECOMP_CXX_SOURCES} "${CMAKE_BINARY_DIR}/res.rc")
+    add_library(UnleashedRecomp SHARED ${UNLEASHED_RECOMP_CXX_SOURCES})
 
     # Hide console for release configurations.
     if (${CMAKE_BUILD_TYPE} MATCHES "Release")
-        target_link_options(UnleashedRecomp PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
+        #target_link_options(UnleashedRecomp PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
+        target_link_options(UnleashedRecomp PRIVATE "/SUBSYSTEM:WINDOWS")
     endif()
 else()
     add_executable(UnleashedRecomp ${UNLEASHED_RECOMP_CXX_SOURCES})
@@ -354,6 +355,7 @@ if (WIN32)
     )
 endif()
 
+
 target_link_libraries(UnleashedRecomp PRIVATE
     fmt::fmt
     libzstd_static
@@ -361,12 +363,13 @@ target_link_libraries(UnleashedRecomp PRIVATE
     nfd::nfd
     o1heap
     XenonUtils
-    SDL2::SDL2-static
+    SDL2::SDL2
     SDL2_mixer
     tomlplusplus::tomlplusplus
     UnleashedRecompLib
     xxHash::xxhash
     CURL::libcurl
+    ${CMAKE_SOURCE_DIR}/libuwp/libuwp.lib
 )
 
 target_include_directories(UnleashedRecomp PRIVATE

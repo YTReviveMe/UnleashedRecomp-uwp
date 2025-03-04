@@ -5,7 +5,7 @@
 #define USER_DIRECTORY "UnleashedRecomp"
 
 #ifndef GAME_INSTALL_DIRECTORY
-#define GAME_INSTALL_DIRECTORY "."
+#define GAME_INSTALL_DIRECTORY "E:\\unleashed"
 #endif
 
 extern std::filesystem::path g_executableRoot;

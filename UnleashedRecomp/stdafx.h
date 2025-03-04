@@ -1,5 +1,8 @@
 #pragma once
 
+// For external entry on UWP
+#define SDLMAIN_DECLSPEC __declspec(dllexport)
+
 #define NOMINMAX
 
 #if defined(_WIN32)
