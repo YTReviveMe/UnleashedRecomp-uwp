@@ -310,11 +310,13 @@ void hid::Init()
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
     SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "1");
+    SDL_SetHint(SDL_HINT_DIRECTINPUT_ENABLED, "0");
 
     SDL_InitSubSystem(SDL_INIT_EVENTS);
+    SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+
     SDL_AddEventWatch(HID_OnSDLEvent, nullptr);
 
-    SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
 }
 
 uint32_t hid::GetState(uint32_t dwUserIndex, XAMINPUT_STATE* pState)

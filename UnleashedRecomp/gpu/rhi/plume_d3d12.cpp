@@ -1290,7 +1290,7 @@ namespace plume {
     }
 
     bool D3D12SwapChain::present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) {
-        uwp_ProcessEvents();
+        uwp_ProcessEvents(); // Must call this to get any video output
 
         UINT syncInterval = vsyncEnabled ? 1 : 0;
         UINT flags = !vsyncEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0;

@@ -1516,8 +1516,13 @@ static void CreateImGuiBackend()
 #endif
 }
 
+static std::thread::id g_mainThreadId = std::this_thread::get_id();
+
 static void CheckSwapChain()
 {
+    // DLW: Hack in refresh of main thread ID, UWP seems to need it
+    g_mainThreadId = std::this_thread::get_id();
+
     g_swapChain->setVsyncEnabled(Config::VSync);
     g_swapChainValid &= !g_swapChain->needsResize();
 
@@ -2068,6 +2073,11 @@ static void LockTextureRect(GuestTexture* texture, uint32_t, GuestLockedRect* lo
 
 static void UnlockTextureRect(GuestTexture* texture) 
 {
+    auto wtf = std::this_thread::get_id();
+    // DLW: Ugly hack but not sure best place to put this, losing track of main thread somewhere but its consistent after the switch
+    if (wtf != g_presentThreadId) {
+        g_presentThreadId = wtf;
+    }
     assert(std::this_thread::get_id() == g_presentThreadId);
 
     RenderCommand cmd;
@@ -6754,12 +6764,15 @@ static void CompileParticleMaterialPipeline(const Hedgehog::Sparkle::CParticleMa
     }
 }
 
-static std::thread::id g_mainThreadId = std::this_thread::get_id();
-
 // SWA::CGameModeStage::ExitLoading
 PPC_FUNC_IMPL(__imp__sub_825369A0);
 PPC_FUNC(sub_825369A0)
 {
+    // DLW: Ugly hack
+    auto wtf = std::this_thread::get_id();
+    if (wtf != g_mainThreadId) {
+        g_mainThreadId = wtf;
+    }
     assert(std::this_thread::get_id() == g_mainThreadId);
 
     // Wait for pipeline compilations to finish.
