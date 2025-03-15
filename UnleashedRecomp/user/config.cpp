@@ -784,7 +784,7 @@ void Config::Save()
 {
     LOGN("Saving configuration...");
 
-    auto userPath = "E:\\unleashed\\"; // GetUserPath();
+    auto userPath = GetUserPath();
 
     if (!std::filesystem::exists(userPath))
         std::filesystem::create_directory(userPath);

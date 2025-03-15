@@ -43,6 +43,7 @@ PPC_FUNC(sub_824EB490)
 }
 
 static std::thread::id g_mainThreadId = std::this_thread::get_id();
+extern "C" __declspec(dllimport) void uwp_ProcessEvents();
 
 // SWA::CApplication::Update
 PPC_FUNC_IMPL(__imp__sub_822C1130);
@@ -66,10 +67,12 @@ PPC_FUNC(sub_822C1130)
     // which SDL does not like. To prevent the OS from thinking
     // the process is unresponsive, we will flush while waiting
     // for the pipelines to finish compiling in video.cpp.
-    if (std::this_thread::get_id() == g_mainThreadId)
+    // DLW: More issues with thread tracking, moved to uwp_processevents to handle empty core window
+    //if (std::this_thread::get_id() == g_mainThreadId)
     {
-        SDL_PumpEvents();
-        SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+        //SDL_PumpEvents();
+        //SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+        uwp_ProcessEvents();
         GameWindow::Update();
     }
 

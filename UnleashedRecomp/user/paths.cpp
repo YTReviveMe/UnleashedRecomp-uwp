@@ -11,6 +11,8 @@ bool CheckPortable()
 
 std::filesystem::path BuildUserPath()
 {
+    return "E:\\unleashed\\";
+
     if (CheckPortable())
         return g_executableRoot;
 

@@ -9,7 +9,7 @@ constexpr size_t RESERVED_END = 0xA0000000;
 void Heap::Init()
 {
     heap = o1heapInit(g_memory.Translate(0x20000), RESERVED_BEGIN - 0x20000);
-    physicalHeap = o1heapInit(g_memory.Translate(RESERVED_END), 0x100000000 - RESERVED_END);
+    physicalHeap = o1heapInit(g_memory.Translate(RESERVED_END), PPC_MEMORY_SIZE - RESERVED_END);
 }
 
 void* Heap::Alloc(size_t size)

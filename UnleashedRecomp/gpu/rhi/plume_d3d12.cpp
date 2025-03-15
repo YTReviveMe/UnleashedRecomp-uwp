@@ -11,7 +11,6 @@
 
 // Libuwp helper
 extern "C" __declspec(dllimport) void* uwp_GetWindowReference();
-extern "C" __declspec(dllimport) void uwp_ProcessEvents();
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -1249,11 +1248,14 @@ namespace plume {
             return;
         }
 
+// DLW: Doesn't work on UWP
+#if 0
         res = dxgiFactory->MakeWindowAssociation(renderWindow, DXGI_MWA_NO_ALT_ENTER);
         if (FAILED(res)) {
             fprintf(stderr, "MakeWindowAssociation failed with error code 0x%lX.\n", res);
             return;
         }
+#endif
 
         d3d = static_cast<IDXGISwapChain3 *>(swapChain1);
         d3d->SetMaximumFrameLatency(maxFrameLatency);
@@ -1290,7 +1292,6 @@ namespace plume {
     }
 
     bool D3D12SwapChain::present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) {
-        uwp_ProcessEvents(); // Must call this to get any video output
 
         UINT syncInterval = vsyncEnabled ? 1 : 0;
         UINT flags = !vsyncEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0;
