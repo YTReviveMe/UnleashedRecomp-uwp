@@ -163,6 +163,8 @@ struct SharedConstants
     uint32_t samplerIndices[16]{};
     uint32_t booleans{};
     uint32_t swappedTexcoords{};
+    float halfPixelOffsetX{};
+    float halfPixelOffsetY{};
     float alphaThreshold{};
 };
 
@@ -3099,8 +3101,6 @@ static void FlushViewport()
     if (g_dirtyStates.viewport)
     {
         auto viewport = g_viewport;
-        viewport.x += 0.5f;
-        viewport.y += 0.5f;
 
         if (viewport.minDepth > viewport.maxDepth)
             std::swap(viewport.minDepth, viewport.maxDepth);
@@ -3522,6 +3522,12 @@ static void SetFramebuffer(GuestSurface* renderTarget, GuestSurface* depthStenci
         {
             commandList->setFramebuffer(nullptr);
             g_framebuffer = nullptr;
+        }
+
+        if (g_framebuffer != nullptr)
+        {
+            SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.halfPixelOffsetX, 1.0f / float(g_framebuffer->getWidth()));
+            SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.halfPixelOffsetY, -1.0f / float(g_framebuffer->getHeight()));
         }
 
         g_dirtyStates.renderTargetAndDepthStencil = settingForClear;
