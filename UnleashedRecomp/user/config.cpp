@@ -335,8 +335,10 @@ CONFIG_DEFINE_ENUM_TEMPLATE(EAntiAliasing)
 {
     { "None",    EAntiAliasing::None },
     { "2x MSAA", EAntiAliasing::MSAA2x },
+#if 0
     { "4x MSAA", EAntiAliasing::MSAA4x },
     { "8x MSAA", EAntiAliasing::MSAA8x }
+#endif
 };
 
 CONFIG_DEFINE_ENUM_TEMPLATE(EShadowResolution)
@@ -345,8 +347,10 @@ CONFIG_DEFINE_ENUM_TEMPLATE(EShadowResolution)
     { "512",      EShadowResolution::x512 },
     { "1024",     EShadowResolution::x1024 },
     { "2048",     EShadowResolution::x2048 },
+#if 0
     { "4096",     EShadowResolution::x4096 },
     { "8192",     EShadowResolution::x8192 },
+#endif
 };
 
 CONFIG_DEFINE_ENUM_TEMPLATE(EGITextureFiltering)
