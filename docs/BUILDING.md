@@ -51,6 +51,12 @@ You can also find the equivalent packages for your preferred distro.
 > This list may not be comprehensive for your particular distro and you may be required to install additional packages, should an error occur during configuration.
 
 ## 4. Build the Project
+### UWP
+Note: Make sure to update imgui & XenonRecomp to worleydl's `xenon-uwp` branches.  If you run into issues with fltused see the patch in this folder (we don't actually use the produced SDL2.dll in the UWP executable but we need it to build successfully!)
+
+1. Use cmake with clang preset of your choice inside of VS Native Command prompt
+2. Build project and copy required artifacts to `uwp/deps/` folder, see README inside deps folder for more info.
+3. Build UWP solution in vs2022
 
 ### Windows
 1. Open the repository directory in Visual Studio and wait for CMake generation to complete. If you don't plan to debug, switch to the `Release` configuration.
