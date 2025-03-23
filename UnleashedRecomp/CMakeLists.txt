@@ -209,6 +209,7 @@ set(UNLEASHED_RECOMP_THIRDPARTY_INCLUDES
     "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/implot"
     "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/json/include"
     "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/magic_enum/include"
+    "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL/include"
     "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/stb"
     "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/unordered_dense/include"
     "${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/volk"
@@ -363,7 +364,7 @@ target_link_libraries(UnleashedRecomp PRIVATE
     nfd::nfd
     o1heap
     XenonUtils
-    SDL2::SDL2
+    ${CMAKE_SOURCE_DIR}/libuwp/junk/SDL2.lib
     SDL2_mixer
     tomlplusplus::tomlplusplus
     UnleashedRecompLib

@@ -19,15 +19,10 @@ set(SDL2MIXER_WAVPACK OFF)
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/msdf-atlas-gen")
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/nativefiledialog-extended")
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/o1heap")
-
-# UWP hack to get dll's for SDL, static SDL not currently supported
-message(STATUS "Forcing dynamic SDL link for UWP")
-set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-set(SDL_SHARED ON CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-
-add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL")
+# DLW: Linking against prebuilt shared UWP lib, replaced later by UWP wrapper
+# > Using throwaway prebuilts because build doesn't like mixing shared/static
+set(SDL2_LIBRARY ${CMAKE_SOURCE_DIR}/libuwp/junk/SDL2.lib)
+set(SDL2_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/thirdparty/SDL/include)
+#add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL")
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL_mixer")
 
-# Reset back to off, only SDL_mixer needs this var
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

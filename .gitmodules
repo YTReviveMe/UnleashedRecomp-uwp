@@ -1,6 +1,6 @@
-[submodule "tools/XenonRecomp"]
+[submodule "tools/XenonRecomp-dev"]
 	path = tools/XenonRecomp
-	url = https://github.com/hedge-dev/XenonRecomp.git
+	url = https://github.com/worleydl/XenonRecomp-dev.git
 [submodule "thirdparty/ddspp"]
 	path = thirdparty/ddspp
 	url = https://github.com/redorav/ddspp.git
@@ -45,7 +45,7 @@
 	url = https://github.com/btzy/nativefiledialog-extended.git
 [submodule "thirdparty/imgui"]
 	path = thirdparty/imgui
-	url = https://github.com/ocornut/imgui.git
+	url = https://github.com/worleydl/imgui-dev.git
 [submodule "thirdparty/unordered_dense"]
 	path = thirdparty/unordered_dense
 	url = https://github.com/martinus/unordered_dense.git
