@@ -52,6 +52,8 @@ You can also find the equivalent packages for your preferred distro.
 
 ## 4. Build the Project
 ### UWP
+Note: There are issues with the Release configuration, use the RelWithDebInfo or expect crashes!
+
 1. Use cmake with clang preset of your choice inside of VS Native Command prompt
 2. Build project and copy required artifacts to `uwp/deps/` folder, see README inside deps folder for more info.
 3. Build UWP solution in vs2022

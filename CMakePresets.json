@@ -50,7 +50,7 @@
             }
         },
         {
-            "name": "x64-Clang-Release",
+            "name": "x64-Clang-Release-broken-on-uwp",
             "displayName": "Release",
             "inherits": "x64-Clang-Debug",
             "cacheVariables": {
