@@ -371,6 +371,7 @@ target_link_libraries(UnleashedRecomp PRIVATE
     xxHash::xxhash
     CURL::libcurl
     ${CMAKE_SOURCE_DIR}/libuwp/libuwp.lib
+    windowsapp
 )
 
 target_include_directories(UnleashedRecomp PRIVATE
