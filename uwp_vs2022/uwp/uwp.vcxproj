@@ -224,6 +224,7 @@
 			    d3d12.lib;dxgi.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories); $(VCInstallDir)\lib\store\amd64; $(VCInstallDir)\lib\amd64</AdditionalLibraryDirectories>
       <GenerateWindowsMetadata>false</GenerateWindowsMetadata>
+      <AdditionalOptions>/PDBALTPATH:uwp.pdb %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
@@ -250,6 +251,7 @@
 			    d3d12.lib;dxgi.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories); $(VCInstallDir)\lib\store\amd64; $(VCInstallDir)\lib\amd64</AdditionalLibraryDirectories>
       <GenerateWindowsMetadata>false</GenerateWindowsMetadata>
+      <AdditionalOptions>/PDBALTPATH:uwp.pdb %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>

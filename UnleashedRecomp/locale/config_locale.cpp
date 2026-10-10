@@ -629,6 +629,23 @@ CONFIG_DEFINE_LOCALE(VSync)
     { ELanguage::Italian,  { "V-Sync", "Sincronizza il gioco con la frequenza d'aggiornamento del display per evitare lo screen tearing." } }
 };
 
+CONFIG_DEFINE_LOCALE(TripleBuffering)
+{
+    { ELanguage::English, { "Triple Buffering", "Use a third frame buffer to improve frame pacing when V-Sync is enabled." } }
+};
+
+CONFIG_DEFINE_ENUM_LOCALE(ETripleBuffering)
+{
+    {
+        ELanguage::English,
+        {
+            { ETripleBuffering::Auto, { "AUTO", "" } },
+            { ETripleBuffering::On,   { "ON", "" } },
+            { ETripleBuffering::Off,  { "OFF", "" } }
+        }
+    }
+};
+
 // Japanese Notes: This localization should include furigana.
 CONFIG_DEFINE_LOCALE(FPS)
 {
@@ -638,6 +655,11 @@ CONFIG_DEFINE_LOCALE(FPS)
     { ELanguage::French,   { "IPS", "Détermine la fréquence d'images maximale du jeu.\n\nATTENTION : cela peut entraîner des problèmes à des taux de rafraîchissement supérieurs à 60 IPS." } },
     { ELanguage::Spanish,  { "FPS", "Establece la tasa de fotogramas máxima a la que puede correr el juego.\n\nADVERTENCIA: esto puede introducir fallos en tasas mayores a 60 FPS." } },
     { ELanguage::Italian,  { "FPS", "Imposta il frame rate massimo del gioco.\n\nATTENZIONE: questa opzione può causare dei glitch a frame rate più alti di 60 FPS." } }
+};
+
+CONFIG_DEFINE_LOCALE(ShowFPS)
+{
+    { ELanguage::English, { "Show FPS", "Display the current frame rate." } }
 };
 
 // Japanese Notes: This localization should include furigana.
@@ -818,6 +840,25 @@ CONFIG_DEFINE_ENUM_LOCALE(EGITextureFiltering)
         {
             { EGITextureFiltering::Bilinear, { "BILINEARE", "" } },
             { EGITextureFiltering::Bicubic,  { "BICUBICO", "" } }
+        }
+    }
+};
+
+CONFIG_DEFINE_LOCALE(DepthOfFieldQuality)
+{
+    { ELanguage::English, { "Depth of Field Quality", "Set the quality of the depth of field effect." } }
+};
+
+CONFIG_DEFINE_ENUM_LOCALE(EDepthOfFieldQuality)
+{
+    {
+        ELanguage::English,
+        {
+            { EDepthOfFieldQuality::Auto,   { "AUTO", "" } },
+            { EDepthOfFieldQuality::Low,    { "LOW", "" } },
+            { EDepthOfFieldQuality::Medium, { "MEDIUM", "" } },
+            { EDepthOfFieldQuality::High,   { "HIGH", "" } },
+            { EDepthOfFieldQuality::Ultra,  { "ULTRA", "" } }
         }
     }
 };

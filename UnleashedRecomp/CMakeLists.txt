@@ -2,6 +2,7 @@ project("UnleashedRecomp")
 
 if (WIN32)
     option(UNLEASHED_RECOMP_D3D12 "Add D3D12 support for rendering" ON)
+    option(UNLEASHED_RECOMP_UWP "Build the host DLL for the Xbox UWP package" OFF)
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -360,6 +361,21 @@ if (WIN32)
         Synchronization
         winmm
     )
+
+    if (UNLEASHED_RECOMP_UWP)
+        target_compile_definitions(UnleashedRecomp PRIVATE UNLEASHED_RECOMP_UWP)
+        target_compile_options(UnleashedRecomp PRIVATE
+            "/clang:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
+        )
+        target_compile_options(XenonUtils PRIVATE
+            "/FI${CMAKE_CURRENT_SOURCE_DIR}/install/uwp_file_api.h"
+            "/clang:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
+        )
+        target_link_options(UnleashedRecomp PRIVATE
+            "/PDBALTPATH:UnleashedRecomp.pdb"
+        )
+        target_link_libraries(UnleashedRecomp PRIVATE WindowsApp)
+    endif()
 endif()
 
 

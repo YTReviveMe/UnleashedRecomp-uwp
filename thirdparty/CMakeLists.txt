@@ -27,7 +27,20 @@ set(SDL_SHARED ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL")
+
+if(UNLEASHED_RECOMP_UWP)
+    get_target_property(SDL2_SOURCES SDL2 SOURCES)
+    list(FILTER SDL2_SOURCES EXCLUDE REGEX "\\.rc$")
+    set_property(TARGET SDL2 PROPERTY SOURCES "${SDL2_SOURCES}")
+endif()
+
 add_subdirectory("${UNLEASHED_RECOMP_THIRDPARTY_ROOT}/SDL_mixer")
+
+if(UNLEASHED_RECOMP_UWP)
+    get_target_property(SDL2_MIXER_SOURCES SDL2_mixer SOURCES)
+    list(FILTER SDL2_MIXER_SOURCES EXCLUDE REGEX "\\.rc$")
+    set_property(TARGET SDL2_mixer PROPERTY SOURCES "${SDL2_MIXER_SOURCES}")
+endif()
 
 # Reset back to off, only SDL_mixer needs this var
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

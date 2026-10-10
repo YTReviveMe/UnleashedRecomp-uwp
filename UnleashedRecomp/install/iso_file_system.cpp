@@ -13,18 +13,35 @@
 
 #include <stack>
 
+#ifdef UNLEASHED_RECOMP_UWP
+#include "uwp_file_api.h"
+#endif
+
 ISOFileSystem::ISOFileSystem(const std::filesystem::path &isoPath)
 {
+#ifdef UNLEASHED_RECOMP_UWP
+    fileHandle = OpenFileForApp(isoPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    LARGE_INTEGER size{};
+    if (fileHandle == INVALID_HANDLE_VALUE || !GetFileSizeEx(fileHandle, &size))
+    {
+        if (fileHandle != INVALID_HANDLE_VALUE)
+            CloseHandle(fileHandle);
+        fileHandle = INVALID_HANDLE_VALUE;
+        return;
+    }
+    fileSize = size.QuadPart;
+#else
     mappedFile.open(isoPath);
     if (!mappedFile.isOpen())
     {
         return;
     }
+#endif
 
     name = (const char *)(isoPath.filename().u8string().data());
 
     // Find root sector.
-    const uint8_t *mappedFileData = mappedFile.data();
     uint32_t gameOffset = 0;
     const size_t XeSectorSize = 2048;
     static const size_t PossibleOffsets[] = { 0x00000000, 0x0000FB20, 0x00020600, 0x02080000, 0x0FD90000, };
@@ -33,12 +50,9 @@ ISOFileSystem::ISOFileSystem(const std::filesystem::path &isoPath)
     for (size_t i = 0; i < std::size(PossibleOffsets); i++)
     {
         size_t fileOffset = PossibleOffsets[i] + (32 * XeSectorSize);
-        if ((fileOffset + strlen(RefMagic)) > mappedFile.size())
-        {
-            continue;
-        }
-
-        if (std::memcmp(&mappedFileData[fileOffset], RefMagic, strlen(RefMagic)) == 0)
+        char magic[sizeof(RefMagic) - 1];
+        if (read(fileOffset, magic, sizeof(magic)) &&
+            std::memcmp(magic, RefMagic, sizeof(magic)) == 0)
         {
             gameOffset = PossibleOffsets[i];
             magicFound = true;
@@ -46,21 +60,32 @@ ISOFileSystem::ISOFileSystem(const std::filesystem::path &isoPath)
     }
 
     size_t rootInfoOffset = gameOffset + (32 * XeSectorSize) + 20;
-    if (!magicFound || (rootInfoOffset + 8) > mappedFile.size())
+    uint32_t rootInfo[2];
+    if (!magicFound || !read(rootInfoOffset, rootInfo, sizeof(rootInfo)))
     {
+#ifdef UNLEASHED_RECOMP_UWP
+        CloseHandle(fileHandle);
+        fileHandle = INVALID_HANDLE_VALUE;
+#else
         mappedFile.close();
+#endif
         return;
     }
 
     // Parse root information.
-    uint32_t rootSector = *(uint32_t *)(&mappedFileData[rootInfoOffset + 0]);
-    uint32_t rootSize = *(uint32_t *)(&mappedFileData[rootInfoOffset + 4]);
+    uint32_t rootSector = rootInfo[0];
+    uint32_t rootSize = rootInfo[1];
     size_t rootOffset = gameOffset + (rootSector * XeSectorSize);
     const uint32_t MinRootSize = 13;
     const uint32_t MaxRootSize = 32 * 1024 * 1024;
     if ((rootSize < MinRootSize) || (rootSize > MaxRootSize))
     {
+#ifdef UNLEASHED_RECOMP_UWP
+        CloseHandle(fileHandle);
+        fileHandle = INVALID_HANDLE_VALUE;
+#else
         mappedFile.close();
+#endif
         return;
     }
 
@@ -89,27 +114,37 @@ ISOFileSystem::ISOFileSystem(const std::filesystem::path &isoPath)
         iterationStack.pop();
 
         size_t infoOffset = step.nodeOffset + step.entryOffset;
-        if ((infoOffset + 14) > mappedFile.size())
+        uint8_t info[14];
+        if (!read(infoOffset, info, sizeof(info)))
         {
+#ifdef UNLEASHED_RECOMP_UWP
+            CloseHandle(fileHandle);
+            fileHandle = INVALID_HANDLE_VALUE;
+#else
             mappedFile.close();
+#endif
             return;
         }
 
-        nodeL = *(uint16_t *)(&mappedFileData[infoOffset + 0]);
-        nodeR = *(uint16_t *)(&mappedFileData[infoOffset + 2]);
-        sector = *(uint32_t *)(&mappedFileData[infoOffset + 4]);
-        length = *(uint32_t *)(&mappedFileData[infoOffset + 8]);
-        attributes = *(uint8_t *)(&mappedFileData[infoOffset + 12]);
-        nameLength = *(uint8_t *)(&mappedFileData[infoOffset + 13]);
+        std::memcpy(&nodeL, info + 0, sizeof(nodeL));
+        std::memcpy(&nodeR, info + 2, sizeof(nodeR));
+        std::memcpy(&sector, info + 4, sizeof(sector));
+        std::memcpy(&length, info + 8, sizeof(length));
+        attributes = info[12];
+        nameLength = info[13];
 
         size_t nameOffset = infoOffset + 14;
-        if ((nameOffset + nameLength) > mappedFile.size())
+        if (!read(nameOffset, fileName, nameLength))
         {
+#ifdef UNLEASHED_RECOMP_UWP
+            CloseHandle(fileHandle);
+            fileHandle = INVALID_HANDLE_VALUE;
+#else
             mappedFile.close();
+#endif
             return;
         }
 
-        memcpy(fileName, &mappedFileData[nameOffset], nameLength);
         fileName[nameLength] = '\0';
 
         if (nodeL)
@@ -137,6 +172,44 @@ ISOFileSystem::ISOFileSystem(const std::filesystem::path &isoPath)
     }
 }
 
+ISOFileSystem::~ISOFileSystem()
+{
+#ifdef UNLEASHED_RECOMP_UWP
+    if (fileHandle != INVALID_HANDLE_VALUE)
+        CloseHandle(fileHandle);
+#endif
+}
+
+bool ISOFileSystem::read(size_t offset, void *data, size_t size) const
+{
+#ifdef UNLEASHED_RECOMP_UWP
+    if (fileHandle == INVALID_HANDLE_VALUE || offset > fileSize || size > fileSize - offset)
+        return false;
+
+    LARGE_INTEGER position{};
+    position.QuadPart = offset;
+    if (!SetFilePointerEx(fileHandle, position, nullptr, FILE_BEGIN))
+        return false;
+
+    auto destination = static_cast<uint8_t *>(data);
+    while (size != 0)
+    {
+        DWORD chunkSize = static_cast<DWORD>(std::min<size_t>(size, 16 * 1024 * 1024));
+        DWORD bytesRead = 0;
+        if (!ReadFile(fileHandle, destination, chunkSize, &bytesRead, nullptr) || bytesRead != chunkSize)
+            return false;
+        destination += bytesRead;
+        size -= bytesRead;
+    }
+    return true;
+#else
+    if (offset > mappedFile.size() || size > mappedFile.size() - offset)
+        return false;
+    std::memcpy(data, mappedFile.data() + offset, size);
+    return true;
+#endif
+}
+
 bool ISOFileSystem::load(const std::string &path, uint8_t *fileData, size_t fileDataMaxByteCount) const
 {
     auto it = fileMap.find(path);
@@ -147,14 +220,26 @@ bool ISOFileSystem::load(const std::string &path, uint8_t *fileData, size_t file
             return false;
         }
 
-        const uint8_t *mappedFileData = mappedFile.data();
-        memcpy(fileData, &mappedFileData[std::get<0>(it->second)], std::get<1>(it->second));
-        return true;
+        return read(std::get<0>(it->second), fileData, std::get<1>(it->second));
     }
     else
     {
         return false;
     }
+}
+
+bool ISOFileSystem::load(const std::string &path, size_t offset, uint8_t *fileData, size_t byteCount) const
+{
+    auto it = fileMap.find(path);
+    if (it == fileMap.end())
+        return false;
+
+    const size_t fileOffset = std::get<0>(it->second);
+    const size_t fileSize = std::get<1>(it->second);
+    if (offset > fileSize || byteCount > fileSize - offset)
+        return false;
+
+    return read(fileOffset + offset, fileData, byteCount);
 }
 
 size_t ISOFileSystem::getSize(const std::string &path) const
@@ -182,7 +267,11 @@ const std::string &ISOFileSystem::getName() const
 
 bool ISOFileSystem::empty() const 
 {
+#ifdef UNLEASHED_RECOMP_UWP
+    return fileHandle == INVALID_HANDLE_VALUE;
+#else
     return !mappedFile.isOpen();
+#endif
 }
 
 std::unique_ptr<ISOFileSystem> ISOFileSystem::create(const std::filesystem::path &isoPath) {

@@ -6,6 +6,10 @@
 #include "iso_file_system.h"
 #include "xcontent_file_system.h"
 
+#ifdef UNLEASHED_RECOMP_UWP
+#include "uwp_file_api.h"
+#endif
+
 #include "hashes/apotos_shamar.h"
 #include "hashes/chunnan.h"
 #include "hashes/empire_city_adabat.h"
@@ -134,7 +138,7 @@ static bool checkFile(const FilePair &pair, const uint64_t *fileHashes, const st
     return true;
 }
 
-static bool copyFile(const FilePair &pair, const uint64_t *fileHashes, VirtualFileSystem &sourceVfs, const std::filesystem::path &targetDirectory, bool skipHashChecks, std::vector<uint8_t> &fileData, Journal &journal, const std::function<bool()> &progressCallback) {
+static bool copyFile(const FilePair &pair, const uint64_t *fileHashes, VirtualFileSystem &sourceVfs, const std::filesystem::path &targetDirectory, bool skipHashChecks, Journal &journal, const std::function<bool()> &progressCallback) {
     const std::string filename(pair.first);
     const uint32_t hashCount = pair.second;
     if (!sourceVfs.exists(filename))
@@ -144,28 +148,12 @@ static bool copyFile(const FilePair &pair, const uint64_t *fileHashes, VirtualFi
         return false;
     }
 
-    if (!sourceVfs.load(filename, fileData))
+    const size_t fileSize = sourceVfs.getSize(filename);
+    if (fileSize == 0)
     {
         journal.lastResult = Journal::Result::FileReadFailed;
         journal.lastErrorMessage = fmt::format("Failed to read file {} from {}.", filename, sourceVfs.getName());
         return false;
-    }
-
-    if (!skipHashChecks)
-    {
-        uint64_t fileHash = XXH3_64bits(fileData.data(), fileData.size());
-        bool fileHashFound = false;
-        for (uint32_t i = 0; i < hashCount && !fileHashFound; i++)
-        {
-            fileHashFound = fileHash == fileHashes[i];
-        }
-
-        if (!fileHashFound)
-        {
-            journal.lastResult = Journal::Result::FileHashFailed;
-            journal.lastErrorMessage = fmt::format("File {} from {} did not match any of the known hashes.", filename, sourceVfs.getName());
-            return false;
-        }
     }
 
     std::filesystem::path targetPath = targetDirectory / std::filesystem::path(std::u8string_view((const char8_t *)(pair.first)));
@@ -187,6 +175,17 @@ static bool copyFile(const FilePair &pair, const uint64_t *fileHashes, VirtualFi
         }
     }
 
+#ifdef UNLEASHED_RECOMP_UWP
+    HANDLE outputHandle = OpenFileForApp(targetPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+        nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (outputHandle == INVALID_HANDLE_VALUE)
+    {
+        const DWORD error = GetLastError();
+        journal.lastResult = Journal::Result::FileCreationFailed;
+        journal.lastErrorMessage = fmt::format("Failed to create file at {} (Windows error {}).", fromPath(targetPath), error);
+        return false;
+    }
+#else
     std::ofstream outStream(targetPath, std::ios::binary);
     if (!outStream.is_open())
     {
@@ -194,18 +193,96 @@ static bool copyFile(const FilePair &pair, const uint64_t *fileHashes, VirtualFi
         journal.lastErrorMessage = fmt::format("Failed to create file at {}.", fromPath(targetPath));
         return false;
     }
+#endif
 
     journal.createdFiles.push_back(targetPath);
 
-    outStream.write((const char *)(fileData.data()), fileData.size());
-    if (outStream.bad())
+    constexpr size_t CopyBufferSize = 4 * 1024 * 1024;
+    std::vector<uint8_t> fileData(std::min(fileSize, CopyBufferSize));
+    XXH3_state_t *hashState = skipHashChecks ? nullptr : XXH3_createState();
+    if (hashState && XXH3_64bits_reset(hashState) == XXH_ERROR)
     {
-        journal.lastResult = Journal::Result::FileWriteFailed;
-        journal.lastErrorMessage = fmt::format("Failed to create file at {}.", fromPath(targetPath));
-        return false;
+        XXH3_freeState(hashState);
+        hashState = nullptr;
     }
 
-    journal.progressCounter += fileData.size();
+    size_t offset = 0;
+    while (offset < fileSize)
+    {
+        const size_t byteCount = std::min(fileData.size(), fileSize - offset);
+        if (!sourceVfs.load(filename, offset, fileData.data(), byteCount))
+        {
+            if (hashState)
+                XXH3_freeState(hashState);
+#ifdef UNLEASHED_RECOMP_UWP
+            CloseHandle(outputHandle);
+#endif
+            journal.lastResult = Journal::Result::FileReadFailed;
+            journal.lastErrorMessage = fmt::format("Failed to read file {} from {}.", filename, sourceVfs.getName());
+            return false;
+        }
+
+        if (hashState)
+            XXH3_64bits_update(hashState, fileData.data(), byteCount);
+
+#ifdef UNLEASHED_RECOMP_UWP
+        DWORD bytesWritten = 0;
+        const bool writeSucceeded = WriteFile(outputHandle, fileData.data(),
+            static_cast<DWORD>(byteCount), &bytesWritten, nullptr) && bytesWritten == byteCount;
+#else
+        outStream.write((const char *)(fileData.data()), byteCount);
+        const bool writeSucceeded = !outStream.bad();
+#endif
+        if (!writeSucceeded)
+        {
+            if (hashState)
+                XXH3_freeState(hashState);
+#ifdef UNLEASHED_RECOMP_UWP
+            const DWORD error = GetLastError();
+            CloseHandle(outputHandle);
+#endif
+            journal.lastResult = Journal::Result::FileWriteFailed;
+            journal.lastErrorMessage = fmt::format("Failed to write file at {}{}.", fromPath(targetPath),
+#ifdef UNLEASHED_RECOMP_UWP
+                fmt::format(" (Windows error {})", error)
+#else
+                ""
+#endif
+            );
+            return false;
+        }
+
+        offset += byteCount;
+    }
+
+#ifdef UNLEASHED_RECOMP_UWP
+    CloseHandle(outputHandle);
+#endif
+
+    if (!skipHashChecks)
+    {
+        if (!hashState)
+        {
+            journal.lastResult = Journal::Result::FileReadFailed;
+            journal.lastErrorMessage = fmt::format("Failed to verify file {} from {}.", filename, sourceVfs.getName());
+            return false;
+        }
+
+        uint64_t fileHash = XXH3_64bits_digest(hashState);
+        XXH3_freeState(hashState);
+        bool fileHashFound = false;
+        for (uint32_t i = 0; i < hashCount && !fileHashFound; i++)
+            fileHashFound = fileHash == fileHashes[i];
+
+        if (!fileHashFound)
+        {
+            journal.lastResult = Journal::Result::FileHashFailed;
+            journal.lastErrorMessage = fmt::format("File {} from {} did not match any of the known hashes.", filename, sourceVfs.getName());
+            return false;
+        }
+    }
+
+    journal.progressCounter += fileSize;
     
     if (!progressCallback())
     {
@@ -223,7 +300,7 @@ static DLC detectDLC(const std::filesystem::path &sourcePath, VirtualFileSystem 
     if (!sourceVfs.load(DLCValidationFile, dlcXmlBytes))
     {
         journal.lastResult = Journal::Result::FileMissing;
-        journal.lastErrorMessage = fmt::format("File {} does not exist in {}.", DLCValidationFile, sourceVfs.getName());
+        journal.lastErrorMessage = fmt::format("File {} does not exist in {}.", DLCValidationFile, fromPath(sourcePath));
         return DLC::Unknown;
     }
 
@@ -447,7 +524,6 @@ bool Installer::copyFiles(std::span<const FilePair> filePairs, const uint64_t *f
     uint32_t validationHashIndex = 0;
     uint32_t hashIndex = 0;
     uint32_t hashCount = 0;
-    std::vector<uint8_t> fileData;
     for (FilePair pair : filePairs)
     {
         hashIndex = hashCount;
@@ -460,7 +536,7 @@ bool Installer::copyFiles(std::span<const FilePair> filePairs, const uint64_t *f
             continue;
         }
 
-        if (!copyFile(pair, &fileHashes[hashIndex], sourceVfs, targetDirectory, skipHashChecks, fileData, journal, progressCallback))
+        if (!copyFile(pair, &fileHashes[hashIndex], sourceVfs, targetDirectory, skipHashChecks, journal, progressCallback))
         {
             return false;
         }
@@ -469,7 +545,7 @@ bool Installer::copyFiles(std::span<const FilePair> filePairs, const uint64_t *f
     // Validation file is copied last after all other files have been copied.
     if (validationPair.first != nullptr)
     {
-        if (!copyFile(validationPair, &fileHashes[validationHashIndex], sourceVfs, targetDirectory, skipHashChecks, fileData, journal, progressCallback))
+        if (!copyFile(validationPair, &fileHashes[validationHashIndex], sourceVfs, targetDirectory, skipHashChecks, journal, progressCallback))
         {
             return false;
         }
@@ -542,18 +618,21 @@ bool Installer::parseSources(const Input &input, Journal &journal, Sources &sour
     {
         sources.dlc.emplace_back();
         DLCSource &dlcSource = sources.dlc.back();
-        if (!parseContent(path, dlcSource.sourceVfs, journal))
+        dlcSource.sourcePath = path;
+
+        std::unique_ptr<VirtualFileSystem> sourceVfs;
+        if (!parseContent(path, sourceVfs, journal))
         {
             return false;
         }
 
-        DLC dlc = detectDLC(path, *dlcSource.sourceVfs, journal);
+        DLC dlc = detectDLC(path, *sourceVfs, journal);
         if (!fillDLCSource(dlc, dlcSource))
         {
             return false;
         }
 
-        if (!computeTotalSize(dlcSource.filePairs, dlcSource.fileHashes, *dlcSource.sourceVfs, journal, sources.totalSize))
+        if (!computeTotalSize(dlcSource.filePairs, dlcSource.fileHashes, *sourceVfs, journal, sources.totalSize))
         {
             return false;
         }
@@ -578,7 +657,13 @@ bool Installer::install(const Sources &sources, const std::filesystem::path &tar
 
     for (const DLCSource &dlcSource : sources.dlc)
     {
-        if (!copyFiles(dlcSource.filePairs, dlcSource.fileHashes, *dlcSource.sourceVfs, targetDirectory / dlcSource.targetSubDirectory, DLCValidationFile, skipHashChecks, journal, progressCallback))
+        std::unique_ptr<VirtualFileSystem> sourceVfs;
+        if (!parseContent(dlcSource.sourcePath, sourceVfs, journal))
+        {
+            return false;
+        }
+
+        if (!copyFiles(dlcSource.filePairs, dlcSource.fileHashes, *sourceVfs, targetDirectory / dlcSource.targetSubDirectory, DLCValidationFile, skipHashChecks, journal, progressCallback))
         {
             return false;
         }

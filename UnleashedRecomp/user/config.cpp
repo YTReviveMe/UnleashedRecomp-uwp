@@ -834,6 +834,11 @@ void Config::Load()
 
 void Config::Save()
 {
+#ifdef UNLEASHED_RECOMP_UWP
+    if (!IsUserPathReady())
+        return;
+#endif
+
     LOGN("Saving configuration...");
 
     auto userPath = GetUserPath();

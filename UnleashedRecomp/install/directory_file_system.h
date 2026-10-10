@@ -29,6 +29,17 @@ struct DirectoryFileSystem : VirtualFileSystem
         }
     }
 
+    bool load(const std::string &path, size_t offset, uint8_t *fileData, size_t byteCount) const override
+    {
+        std::ifstream fileStream(directoryPath / std::filesystem::path(std::u8string_view((const char8_t *)(path.c_str()))), std::ios::binary);
+        if (!fileStream.is_open())
+            return false;
+
+        fileStream.seekg(offset);
+        fileStream.read((char *)(fileData), byteCount);
+        return !fileStream.bad() && static_cast<size_t>(fileStream.gcount()) == byteCount;
+    }
+
     size_t getSize(const std::string &path) const override
     {
         std::error_code ec;

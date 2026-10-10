@@ -16,6 +16,13 @@
 #include <decompressor.h>
 #include <exports.h>
 #include <sdl_listener.h>
+#include <user/paths.h>
+
+#ifdef UNLEASHED_RECOMP_UWP
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Storage.h>
+#endif
 
 #include <res/images/common/hedge-dev.dds.h>
 #include <res/images/installer/install_001.dds.h>
@@ -158,6 +165,33 @@ static bool g_pickerTutorialTriggered = false;
 static bool g_pickerTutorialFolderMode = false;
 static bool g_currentPickerVisible = false;
 static bool g_currentPickerFolderMode = false;
+#ifdef UNLEASHED_RECOMP_UWP
+struct UwpPickerEntry
+{
+    std::string name;
+    std::filesystem::path path;
+    bool isFolder = false;
+    winrt::Windows::Storage::IStorageItem storageItem{ nullptr };
+};
+
+struct UwpPickerState
+{
+    winrt::Windows::Storage::StorageFolder storageFolder{ nullptr };
+    winrt::Windows::Storage::StorageFolder storageRoot{ nullptr };
+    std::filesystem::path nativeFolder;
+    std::filesystem::path nativeRoot;
+    std::vector<UwpPickerEntry> entries;
+    std::string currentPath;
+    std::string errorMessage;
+    bool busy = false;
+    bool focusStorage = true;
+    bool nativeAccess = false;
+};
+
+static std::shared_ptr<UwpPickerState> g_uwpPicker = std::make_shared<UwpPickerState>();
+static std::vector<winrt::Windows::Storage::IStorageItem> g_uwpSourceAccess;
+static bool g_storageDestinationChosen = false;
+#endif
 static int g_currentMessageResult = -1;
 static ImVec2 g_joypadAxis = {};
 static int g_currentCursorIndex = -1;
@@ -1083,6 +1117,341 @@ static void DrawProgressBar(float progressRatio)
     drawList->AddRectFilledMultiColor(sliderMin, sliderMax, sliderColor0, sliderColor0, sliderColor1, sliderColor1);
 }
 
+#ifdef UNLEASHED_RECOMP_UWP
+enum class UwpBrowseAction
+{
+    Internal,
+    External,
+    Child,
+    Parent
+};
+
+static bool SameStoragePath(const std::filesystem::path& left, const std::filesystem::path& right)
+{
+    std::wstring leftText = left.lexically_normal().wstring();
+    std::wstring rightText = right.lexically_normal().wstring();
+    std::transform(leftText.begin(), leftText.end(), leftText.begin(), ::towlower);
+    std::transform(rightText.begin(), rightText.end(), rightText.begin(), ::towlower);
+    return leftText == rightText;
+}
+
+static void SortUwpPickerEntries(std::vector<UwpPickerEntry>& entries)
+{
+    std::sort(entries.begin(), entries.end(), [](const UwpPickerEntry& left, const UwpPickerEntry& right)
+    {
+        if (left.isFolder != right.isFolder)
+            return left.isFolder > right.isFolder;
+        return _stricmp(left.name.c_str(), right.name.c_str()) < 0;
+    });
+}
+
+static winrt::Windows::Foundation::IAsyncAction UwpListFolder(
+    const std::shared_ptr<UwpPickerState>& picker,
+    winrt::Windows::Storage::StorageFolder storageFolder)
+{
+    using namespace winrt;
+    using namespace winrt::Windows::Storage;
+
+    auto items = co_await storageFolder.GetItemsAsync();
+    std::vector<UwpPickerEntry> entries;
+    entries.reserve(items.Size());
+    for (const auto& storageItem : items)
+    {
+        const bool isFolder = storageItem.IsOfType(StorageItemTypes::Folder);
+        if (isFolder || !g_currentPickerFolderMode || g_currentPage == WizardPage::SelectDLC)
+        {
+            entries.push_back({ to_string(storageItem.Name()), std::filesystem::path(storageItem.Path().c_str()), isFolder, storageItem });
+        }
+    }
+
+    SortUwpPickerEntries(entries);
+    picker->storageFolder = storageFolder;
+    picker->currentPath = to_string(storageFolder.Path());
+    picker->entries = std::move(entries);
+}
+
+static void UwpListNativeFolder(
+    const std::shared_ptr<UwpPickerState>& picker,
+    const std::filesystem::path& folder)
+{
+    std::error_code errorCode;
+    if (!std::filesystem::is_directory(folder, errorCode) || errorCode)
+    {
+        picker->errorMessage = "Xbox Development Storage could not be opened.";
+        return;
+    }
+
+    std::vector<UwpPickerEntry> entries;
+    std::filesystem::directory_iterator entry(
+        folder, std::filesystem::directory_options::skip_permission_denied, errorCode);
+    const std::filesystem::directory_iterator end;
+    while (!errorCode && entry != end)
+    {
+        const bool isFolder = entry->is_directory(errorCode);
+        if (!errorCode && (isFolder || !g_currentPickerFolderMode || g_currentPage == WizardPage::SelectDLC))
+        {
+            const auto name = entry->path().filename().u8string();
+            entries.push_back({ std::string(name.begin(), name.end()), entry->path(), isFolder });
+        }
+        errorCode.clear();
+        entry.increment(errorCode);
+    }
+
+    if (errorCode)
+    {
+        picker->errorMessage = "Xbox Development Storage could not be read.";
+        return;
+    }
+
+    SortUwpPickerEntries(entries);
+    picker->nativeFolder = folder;
+    const auto folderText = folder.u8string();
+    picker->currentPath = std::string(folderText.begin(), folderText.end());
+    picker->entries = std::move(entries);
+}
+
+static winrt::fire_and_forget UwpBrowse(UwpBrowseAction action, std::string childName = {})
+{
+    using namespace winrt;
+    using namespace winrt::Windows::Storage;
+
+    auto picker = g_uwpPicker;
+    picker->busy = true;
+    picker->errorMessage.clear();
+    try
+    {
+        StorageFolder folder{ nullptr };
+        if (action == UwpBrowseAction::Internal)
+        {
+            picker->storageFolder = nullptr;
+            picker->storageRoot = nullptr;
+            picker->nativeAccess = true;
+            picker->nativeRoot = UWP_DEVELOPMENT_STORAGE_ROOT;
+            UwpListNativeFolder(picker, picker->nativeRoot);
+        }
+        else if (action == UwpBrowseAction::External)
+        {
+            picker->nativeAccess = false;
+            picker->nativeFolder.clear();
+            picker->nativeRoot.clear();
+            auto removable = KnownFolders::RemovableDevices();
+            auto roots = co_await removable.GetFoldersAsync();
+            for (const auto& root : roots)
+            {
+                if (_wcsicmp(root.Path().c_str(), L"E:\\") == 0)
+                {
+                    folder = root;
+                    break;
+                }
+            }
+            if (!folder && roots.Size() == 1)
+                folder = roots.GetAt(0);
+            if (!folder && roots.Size() > 1)
+                folder = removable;
+
+            if (!folder)
+            {
+                picker->errorMessage = "No external drive was found. Connect a media-formatted USB drive and try again.";
+            }
+            else
+            {
+                picker->storageRoot = (folder == removable) ? nullptr : folder;
+            }
+        }
+        else if (action == UwpBrowseAction::Child)
+        {
+            if (picker->nativeAccess)
+                UwpListNativeFolder(picker, picker->nativeFolder / std::filesystem::path(std::u8string_view(
+                    reinterpret_cast<const char8_t*>(childName.c_str()))));
+            else
+            {
+                folder = co_await picker->storageFolder.GetFolderAsync(to_hstring(childName));
+                if (!picker->storageRoot)
+                    picker->storageRoot = folder;
+            }
+        }
+        else if (action == UwpBrowseAction::Parent && picker->nativeAccess)
+        {
+            if (!SameStoragePath(picker->nativeFolder, picker->nativeRoot))
+                UwpListNativeFolder(picker, picker->nativeFolder.parent_path());
+        }
+        else if (action == UwpBrowseAction::Parent && picker->storageFolder && picker->storageRoot)
+        {
+            const auto currentPath = std::filesystem::path(picker->storageFolder.Path().c_str());
+            const auto rootPath = std::filesystem::path(picker->storageRoot.Path().c_str());
+            if (!SameStoragePath(currentPath, rootPath))
+                folder = co_await picker->storageFolder.GetParentAsync();
+        }
+
+        if (folder)
+            co_await UwpListFolder(picker, folder);
+    }
+    catch (const hresult_error& error)
+    {
+        picker->errorMessage = to_string(error.message());
+    }
+    picker->busy = false;
+}
+
+static winrt::fire_and_forget UwpFinishSelection(
+    std::filesystem::path sourcePath,
+    winrt::Windows::Storage::IStorageItem sourceItem = nullptr)
+{
+    using namespace winrt;
+    using namespace winrt::Windows::Storage;
+
+    auto picker = g_uwpPicker;
+    picker->busy = true;
+    picker->errorMessage.clear();
+    try
+    {
+        if (!picker->nativeAccess && !picker->storageRoot)
+            throw hresult_error(E_FAIL, L"Choose an internal or external storage root first.");
+
+        if (sourcePath.empty())
+            throw hresult_error(E_FAIL, L"The selected storage item does not expose a usable path.");
+
+        if (!g_storageDestinationChosen)
+        {
+            if (picker->nativeAccess)
+            {
+                const auto destination = picker->nativeRoot / UWP_GAME_STORAGE_DIRECTORY;
+                std::error_code errorCode;
+                std::filesystem::create_directories(destination, errorCode);
+                if (errorCode)
+                    throw hresult_error(HRESULT_FROM_WIN32(errorCode.value()), L"Unable to create the internal game folder.");
+                SetGamePath(destination);
+            }
+            else
+            {
+                auto destination = co_await picker->storageRoot.CreateFolderAsync(
+                    UWP_GAME_STORAGE_DIRECTORY, CreationCollisionOption::OpenIfExists);
+                SetGamePath(std::filesystem::path(destination.Path().c_str()));
+            }
+            g_installPath = GetGamePath();
+            g_storageDestinationChosen = true;
+        }
+
+        g_currentPickerResults.clear();
+        g_currentPickerResults.push_back(sourcePath);
+        if (sourceItem)
+            g_uwpSourceAccess.push_back(sourceItem);
+        if (sourceItem && g_currentPickerFolderMode && g_currentPage == WizardPage::SelectDLC &&
+            sourceItem.IsOfType(StorageItemTypes::Folder))
+        {
+            auto items = co_await sourceItem.as<StorageFolder>().GetItemsAsync();
+            for (const auto& item : items)
+                g_uwpSourceAccess.push_back(item);
+        }
+        g_currentPickerResultsReady = true;
+    }
+    catch (const hresult_error& error)
+    {
+        picker->errorMessage = to_string(error.message());
+    }
+    picker->busy = false;
+}
+
+static void UwpPickerDraw()
+{
+    if (!g_currentPickerVisible)
+        return;
+
+    auto& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+
+    ImGui::SetNextWindowPos({ io.DisplaySize.x * 0.10f, io.DisplaySize.y * 0.10f });
+    ImGui::SetNextWindowSize({ io.DisplaySize.x * 0.80f, io.DisplaySize.y * 0.80f });
+    if (g_uwpPicker->focusStorage)
+        ImGui::SetNextWindowFocus();
+
+    ImGui::Begin("Choose game source", nullptr,
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings);
+    ImGui::PushFont(g_newRodinFont);
+    const char* pickerPrompt = "Choose an Xbox 360 dump, disc image, title update, or DLC container";
+    if (g_currentPickerFolderMode)
+    {
+        pickerPrompt = g_currentPage == WizardPage::SelectDLC
+            ? "Choose one DLC folder or a folder containing multiple DLC packs"
+            : "Choose a folder containing extracted, unmodified game files";
+    }
+    ImGui::TextUnformatted(pickerPrompt);
+    ImGui::Separator();
+    ImGui::BeginDisabled(g_uwpPicker->busy);
+
+    if (g_uwpPicker->focusStorage)
+        ImGui::SetKeyboardFocusHere();
+    if (ImGui::Button("Internal Dev Storage", { Scale(210.0f), Scale(34.0f) }))
+        UwpBrowse(UwpBrowseAction::Internal);
+    g_uwpPicker->focusStorage = false;
+    ImGui::SameLine();
+    if (ImGui::Button("External Storage", { Scale(190.0f), Scale(34.0f) }))
+        UwpBrowse(UwpBrowseAction::External);
+    ImGui::SameLine();
+    const bool atStorageRoot = g_uwpPicker->nativeAccess
+        ? SameStoragePath(g_uwpPicker->nativeFolder, g_uwpPicker->nativeRoot)
+        : !g_uwpPicker->storageFolder || !g_uwpPicker->storageRoot ||
+            SameStoragePath(std::filesystem::path(g_uwpPicker->storageFolder ? g_uwpPicker->storageFolder.Path().c_str() : L""),
+                            std::filesystem::path(g_uwpPicker->storageRoot ? g_uwpPicker->storageRoot.Path().c_str() : L""));
+    ImGui::BeginDisabled(atStorageRoot);
+    if (ImGui::Button("Up", { Scale(90.0f), Scale(34.0f) }))
+        UwpBrowse(UwpBrowseAction::Parent);
+    ImGui::EndDisabled();
+
+    ImGui::TextWrapped("%s", g_uwpPicker->currentPath.empty()
+        ? "Select Internal Storage or External Storage to begin."
+        : g_uwpPicker->currentPath.c_str());
+
+    const float footerHeight = Scale(g_currentPickerFolderMode ? 92.0f : 58.0f);
+    ImGui::BeginChild("uwp-storage-items", { 0.0f, -footerHeight }, true,
+        ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    for (const auto& entry : g_uwpPicker->entries)
+    {
+        const std::string label = std::string(entry.isFolder ? "[Folder]  " : "[File]  ") + entry.name;
+        if (ImGui::Selectable(label.c_str()))
+        {
+            if (entry.isFolder)
+                UwpBrowse(UwpBrowseAction::Child, entry.name);
+            else
+                UwpFinishSelection(entry.path, entry.storageItem);
+            break;
+        }
+    }
+    if (g_uwpPicker->entries.empty() && !g_uwpPicker->currentPath.empty() && !g_uwpPicker->busy)
+        ImGui::TextUnformatted("No compatible items were found in this folder.");
+    ImGui::EndChild();
+
+    if (g_uwpPicker->busy)
+        ImGui::TextUnformatted("Reading storage...");
+    else if (!g_uwpPicker->errorMessage.empty())
+        ImGui::TextWrapped("%s", g_uwpPicker->errorMessage.c_str());
+
+    if (g_currentPickerFolderMode)
+    {
+        ImGui::BeginDisabled(g_uwpPicker->currentPath.empty());
+        if (ImGui::Button("Select This Folder", { Scale(240.0f), Scale(34.0f) }))
+        {
+            if (g_uwpPicker->nativeAccess)
+                UwpFinishSelection(g_uwpPicker->nativeFolder);
+            else
+                UwpFinishSelection(std::filesystem::path(g_uwpPicker->storageFolder.Path().c_str()), g_uwpPicker->storageFolder);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Cancel", { Scale(120.0f), Scale(34.0f) }))
+    {
+        g_currentPickerVisible = false;
+        io.ConfigFlags &= ~(ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad);
+    }
+
+    ImGui::EndDisabled();
+    ImGui::PopFont();
+    ImGui::End();
+}
+#endif
+
 static bool ConvertPathSet(const nfdpathset_t *pathSet, std::list<std::filesystem::path> &filePaths)
 {
     nfdpathsetsize_t pathSetCount = 0;
@@ -1109,6 +1478,7 @@ static bool ConvertPathSet(const nfdpathset_t *pathSet, std::list<std::filesyste
 
 static void PickerThreadProcess()
 {
+#ifndef UNLEASHED_RECOMP_UWP
     const nfdpathset_t *pathSet;
     nfdresult_t result = NFD_ERROR;
     if (g_currentPickerFolderMode)
@@ -1131,6 +1501,7 @@ static void PickerThreadProcess()
     }
 
     g_currentPickerResultsReady = true;
+#endif
 }
 
 static void PickerStart(bool folderMode) {
@@ -1144,6 +1515,20 @@ static void PickerStart(bool folderMode) {
     g_currentPickerFolderMode = folderMode;
     g_currentPickerResultsReady = false;
     g_currentPickerVisible = true;
+
+#ifdef UNLEASHED_RECOMP_UWP
+    g_uwpPicker->storageFolder = nullptr;
+    g_uwpPicker->storageRoot = nullptr;
+    g_uwpPicker->nativeFolder.clear();
+    g_uwpPicker->nativeRoot.clear();
+    g_uwpPicker->entries.clear();
+    g_uwpPicker->currentPath.clear();
+    g_uwpPicker->errorMessage.clear();
+    g_uwpPicker->busy = false;
+    g_uwpPicker->focusStorage = true;
+    g_uwpPicker->nativeAccess = false;
+    return;
+#endif
 
     // Optional single thread mode for testing on systems that do not interact well with the separate thread being used for NFD.
     constexpr bool singleThreadMode = false;
@@ -1166,6 +1551,37 @@ static void PickerShow(bool folderMode)
         g_pickerTutorialTriggered = true;
         g_pickerTutorialFolderMode = folderMode;
     }
+}
+
+static bool AddDLCSource(const std::filesystem::path& path)
+{
+    const DLC dlc = Installer::parseDLC(path);
+    if (dlc == DLC::Unknown)
+        return false;
+
+    g_dlcSourcePaths[DLCIndex(dlc)] = path;
+    return true;
+}
+
+static bool AddDLCSourceFolder(const std::filesystem::path& path)
+{
+    if (AddDLCSource(path))
+        return true;
+
+    std::error_code errorCode;
+    if (!std::filesystem::is_directory(path, errorCode) || errorCode)
+        return false;
+
+    bool found = false;
+    std::filesystem::directory_iterator entry(path, std::filesystem::directory_options::skip_permission_denied, errorCode);
+    const std::filesystem::directory_iterator end;
+    while (!errorCode && entry != end)
+    {
+        found = AddDLCSource(entry->path()) || found;
+        entry.increment(errorCode);
+    }
+
+    return found;
 }
 
 static bool ParseSourcePaths(std::list<std::filesystem::path> &paths)
@@ -1201,12 +1617,7 @@ static bool ParseSourcePaths(std::list<std::filesystem::path> &paths)
     {
         for (const std::filesystem::path &path : paths)
         {
-            DLC dlc = Installer::parseDLC(path);
-            if (dlc != DLC::Unknown)
-            {
-                g_dlcSourcePaths[DLCIndex(dlc)] = path;
-            }
-            else if (failedPaths.size() < failedPathLimit)
+            if (!AddDLCSourceFolder(path) && failedPaths.size() < failedPathLimit)
             {
                 failedPaths.push_back(path);
             }
@@ -1684,6 +2095,9 @@ static void PickerDrawForeground()
     {
         auto drawList = ImGui::GetBackgroundDrawList();
         drawList->AddRectFilled({ 0.0f, 0.0f }, ImGui::GetIO().DisplaySize, IM_COL32(0, 0, 0, 190));
+#ifdef UNLEASHED_RECOMP_UWP
+        UwpPickerDraw();
+#endif
     }
 }
 
@@ -1719,6 +2133,10 @@ static void PickerCheckResults()
 
     g_currentPickerResultsReady = false;
     g_currentPickerVisible = false;
+#ifdef UNLEASHED_RECOMP_UWP
+    auto& io = ImGui::GetIO();
+    io.ConfigFlags &= ~(ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad);
+#endif
 }
 
 static bool g_fadingOutMusic;
@@ -1843,9 +2261,16 @@ void InstallerWizard::Shutdown()
 bool InstallerWizard::Run(std::filesystem::path installPath, bool skipGame)
 {
     g_installPath = installPath;
+#ifdef UNLEASHED_RECOMP_UWP
+    g_uwpSourceAccess.clear();
+    std::filesystem::path installedModule;
+    g_storageDestinationChosen = Installer::checkGameInstall(g_installPath, installedModule);
+#endif
 
     EmbeddedPlayer::Init();
+#ifndef UNLEASHED_RECOMP_UWP
     NFD_Init();
+#endif
 
     // Guarantee one controller is initialized. We'll rely on SDL's event loop to get the controller events.
     XAMINPUT_STATE inputState;
@@ -1876,7 +2301,9 @@ bool InstallerWizard::Run(std::filesystem::path installPath, bool skipGame)
     }
 
     GameWindow::SetFullscreenCursorVisibility(false);
+#ifndef UNLEASHED_RECOMP_UWP
     NFD_Quit();
+#endif
 
     InstallerWizard::Shutdown();
     EmbeddedPlayer::Shutdown();

@@ -10,12 +10,12 @@
   <Identity
     Name="xenon-uwp"
     Publisher="CN=danwo"
-    Version="1.0.2.0" />
+    Version="1.0.3.0" />
 
   <mp:PhoneIdentity PhoneProductId="5a528e66-e0fc-43fb-b377-ce0b1bb0d3e8" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>xenon</DisplayName>
+    <DisplayName>Unleashed Recompiled</DisplayName>
     <PublisherDisplayName>danwo</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -33,14 +33,49 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="uwp.App">
       <uap:VisualElements
-        DisplayName="xenon-uwp"
+        DisplayName="Unleashed Recompiled"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
-        Description="Quake sourceport"
+        Description="Unleashed Recompiled for Xbox Dev Mode"
         BackgroundColor="transparent">
 	<!--<uap:SplashScreen Image="Assets\SplashScreen.png" /> -->
         <uap:DefaultTile/>
       </uap:VisualElements>
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="unleashedgamefiles">
+            <uap:SupportedFileTypes>
+              <uap:FileType>.iso</uap:FileType>
+              <uap:FileType>.00</uap:FileType>
+              <uap:FileType>.01</uap:FileType>
+              <uap:FileType>.02</uap:FileType>
+              <uap:FileType>.03</uap:FileType>
+              <uap:FileType>.04</uap:FileType>
+              <uap:FileType>.05</uap:FileType>
+              <uap:FileType>.06</uap:FileType>
+              <uap:FileType>.ar</uap:FileType>
+              <uap:FileType>.arl</uap:FileType>
+              <uap:FileType>.cpk</uap:FileType>
+              <uap:FileType>.csb</uap:FileType>
+              <uap:FileType>.dds</uap:FileType>
+              <uap:FileType>.dmy</uap:FileType>
+              <uap:FileType>.material</uap:FileType>
+              <uap:FileType>.model</uap:FileType>
+              <uap:FileType>.pfd</uap:FileType>
+              <uap:FileType>.sfd</uap:FileType>
+              <uap:FileType>.texset</uap:FileType>
+              <uap:FileType>.texture</uap:FileType>
+              <uap:FileType>.uv-anim</uap:FileType>
+              <uap:FileType>.xex</uap:FileType>
+              <uap:FileType>.xexp</uap:FileType>
+              <uap:FileType>.xml</uap:FileType>
+              <uap:FileType>.ini</uap:FileType>
+              <uap:FileType>.json</uap:FileType>
+              <uap:FileType>.log</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
     </Application>
   </Applications>
 

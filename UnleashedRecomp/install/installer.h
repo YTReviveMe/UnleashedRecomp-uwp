@@ -58,7 +58,7 @@ struct Installer
     };
 
     struct DLCSource {
-        std::unique_ptr<VirtualFileSystem> sourceVfs;
+        std::filesystem::path sourcePath;
         std::span<const FilePair> filePairs;
         const uint64_t *fileHashes = nullptr;
         std::string targetSubDirectory;

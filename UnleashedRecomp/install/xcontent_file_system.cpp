@@ -516,79 +516,92 @@ XContentFileSystem::XContentFileSystem(const std::filesystem::path &contentPath)
 bool XContentFileSystem::load(const std::string &path, uint8_t *fileData, size_t fileDataMaxByteCount) const
 {
     auto it = fileMap.find(path);
-    if (it != fileMap.end())
+    if (it == fileMap.end() || fileDataMaxByteCount < it->second.size)
+        return false;
+
+    return load(path, 0, fileData, it->second.size);
+}
+
+bool XContentFileSystem::load(const std::string &path, size_t offset, uint8_t *fileData, size_t byteCount) const
+{
+    auto it = fileMap.find(path);
+    if (it == fileMap.end() || offset > it->second.size || byteCount > it->second.size - offset)
+        return false;
+
+    if (byteCount == 0)
+        return true;
+
+    if (volumeType == XContentVolumeType::STFS)
     {
-        if (fileDataMaxByteCount < it->second.size)
+        const MemoryMappedFile &rootMappedFile = mappedFiles.back();
+        const uint8_t *rootMappedFileData = rootMappedFile.data();
+        uint32_t fileBlockIndex = it->second.blockIndex;
+        const size_t skippedBlocks = offset / StfsBlockSize;
+        for (size_t i = 0; i < skippedBlocks; i++)
         {
-            return false;
+            if (fileBlockIndex == StfsEndOfChain)
+                return false;
+
+            const StfsHashEntry *hashEntry = hashEntryFromBlockIndex(rootMappedFileData, baseOffset, fileBlockIndex);
+            fileBlockIndex = hashEntry->infoRaw & 0xFFFFFF;
         }
 
-        if (volumeType == XContentVolumeType::STFS)
+        size_t blockDataOffset = offset % StfsBlockSize;
+        size_t outputOffset = 0;
+        while (outputOffset < byteCount)
         {
-            const MemoryMappedFile &rootMappedFile = mappedFiles.back();
-            const uint8_t *rootMappedFileData = rootMappedFile.data();
-            size_t fileDataOffset = 0;
-            size_t remainingSize = it->second.size;
-            uint32_t fileBlockIndex = it->second.blockIndex;
-            for (uint32_t i = 0; i < it->second.blockCount && fileBlockIndex != StfsEndOfChain; i++)
+            if (fileBlockIndex == StfsEndOfChain)
+                return false;
+
+            const size_t copySize = std::min(size_t(StfsBlockSize) - blockDataOffset, byteCount - outputOffset);
+            const size_t blockOffset = blockIndexToOffset(baseOffset, fileBlockIndex) + blockDataOffset;
+            if (blockOffset + copySize > rootMappedFile.size())
+                return false;
+
+            std::memcpy(fileData + outputOffset, rootMappedFileData + blockOffset, copySize);
+            outputOffset += copySize;
+            blockDataOffset = 0;
+
+            if (outputOffset < byteCount)
             {
-                size_t blockSize = std::min(size_t(StfsBlockSize), remainingSize);
-                size_t blockOffset = blockIndexToOffset(baseOffset, fileBlockIndex);
-                if (blockOffset + blockSize > rootMappedFile.size())
-                {
-                    return false;
-                }
-
-                memcpy(&fileData[fileDataOffset], &rootMappedFileData[blockOffset], blockSize);
-
                 const StfsHashEntry *hashEntry = hashEntryFromBlockIndex(rootMappedFileData, baseOffset, fileBlockIndex);
                 fileBlockIndex = hashEntry->infoRaw & 0xFFFFFF;
-                fileDataOffset += blockSize;
-                remainingSize -= blockSize;
             }
-
-            return remainingSize == 0;
         }
-        else if (volumeType == XContentVolumeType::SVOD)
-        {
-            size_t fileDataOffset = 0;
-            size_t remainingSize = it->second.size;
-            size_t currentBlock = it->second.blockIndex;
-            while (remainingSize > 0)
-            {
-                size_t blockFileOffset, blockFileIndex;
-                blockToOffsetAndFile(svodLayoutType, svodStartDataBlock, svodBaseOffset, currentBlock, blockFileOffset, blockFileIndex);
-                if (blockFileIndex >= mappedFiles.size())
-                {
-                    return false;
-                }
 
-                const MemoryMappedFile &mappedFile = mappedFiles[blockFileIndex];
-                const uint8_t *mappedFileData = mappedFile.data();
-                size_t blockSize = std::min(size_t(0x800), remainingSize);
-                if (blockFileOffset + blockSize > mappedFile.size())
-                {
-                    return false;
-                }
-
-                memcpy(&fileData[fileDataOffset], &mappedFileData[blockFileOffset], blockSize);
-
-                fileDataOffset += blockSize;
-                remainingSize -= blockSize;
-                currentBlock++;
-            }
-
-            return remainingSize == 0;
-        }
-        else
-        {
-            return false;
-        }
+        return true;
     }
-    else
+
+    if (volumeType == XContentVolumeType::SVOD)
     {
-        return false;
+        constexpr size_t SvodBlockSize = 0x800;
+        size_t currentBlock = it->second.blockIndex + (offset / SvodBlockSize);
+        size_t blockDataOffset = offset % SvodBlockSize;
+        size_t outputOffset = 0;
+        while (outputOffset < byteCount)
+        {
+            size_t blockFileOffset, blockFileIndex;
+            blockToOffsetAndFile(svodLayoutType, svodStartDataBlock, svodBaseOffset,
+                currentBlock, blockFileOffset, blockFileIndex);
+            if (blockFileIndex >= mappedFiles.size())
+                return false;
+
+            const MemoryMappedFile &mappedFile = mappedFiles[blockFileIndex];
+            const size_t copySize = std::min(SvodBlockSize - blockDataOffset, byteCount - outputOffset);
+            blockFileOffset += blockDataOffset;
+            if (blockFileOffset + copySize > mappedFile.size())
+                return false;
+
+            std::memcpy(fileData + outputOffset, mappedFile.data() + blockFileOffset, copySize);
+            outputOffset += copySize;
+            blockDataOffset = 0;
+            currentBlock++;
+        }
+
+        return true;
     }
+
+    return false;
 }
 
 size_t XContentFileSystem::getSize(const std::string &path) const
